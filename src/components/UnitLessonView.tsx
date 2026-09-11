@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { SubjectMeta, Question } from '../types.ts';
 import { getCurriculumSections, getLessonList } from '../data/curriculum.ts';
 import { fetchQuestions, generateAiQuestionsApi } from '../services/api.ts';
+import { getSubjectStyle } from '../utils/subjectStyles.ts';
 import { 
   ArrowRight, 
   FileText, 
@@ -107,9 +108,10 @@ export const UnitLessonView: React.FC<UnitLessonViewProps> = ({
             <span>العودة للمواد</span>
           </button>
           <span className="text-[#223b57]">/</span>
-          <span className="text-[#55a8ff] flex items-center gap-1">
-            <span>{subject.icon}</span>
+          <span className="text-[#55a8ff] flex items-center gap-1.5 font-bold">
+            <span className="text-base">{getSubjectStyle(subject.name).emoji}</span>
             <span>{subject.name}</span>
+            <span className="text-xs">{getSubjectStyle(subject.name).secondaryEmoji}</span>
           </span>
           {selectedUnit && (
             <>

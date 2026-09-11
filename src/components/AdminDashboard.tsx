@@ -376,7 +376,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           fileCount++;
           try {
             const content = await entry.async('text');
-            const parsed = JSON.parse(content);
             const pathParts = filename.replace(/\\/g, '/').split('/').filter((p) => p && !/\.(json|txt)$/i.test(p));
 
             // Guess subject & units from folder path if not specified in json
@@ -389,30 +388,53 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             const guessedUnit = pathParts.length > 1 ? pathParts[1] : undefined;
             const guessedLesson = pathParts.length > 2 ? pathParts[2] : undefined;
 
-            const items = extractQuestionsFromObject(parsed, guessedSubject, guessedUnit, guessedLesson);
-            extractedQuestions.push(...items);
+            if (filename.toLowerCase().endsWith('.json')) {
+              const parsed = JSON.parse(content);
+              const items = extractQuestionsFromObject(parsed, guessedSubject, guessedUnit, guessedLesson);
+              extractedQuestions.push(...items);
+            } else {
+              // Plain text parser fallback
+              const textItems = parseQuestionsFromPlainText(content, guessedSubject, guessedUnit, guessedLesson);
+              extractedQuestions.push(...textItems);
+            }
           } catch (err) {
             console.warn(`Error parsing file ${filename} inside zip:`, err);
           }
         }
         setImportStatus(`تم العثور على ${extractedQuestions.length} سؤال في ${fileCount} ملف${manifestInfo}. جاري الفهرسة والتخزين...`);
-      } else {
+      } else if (file.name.toLowerCase().endsWith('.json')) {
         const content = await file.text();
         const parsed = JSON.parse(content);
         extractedQuestions = extractQuestionsFromObject(parsed);
+      } else {
+        const content = await file.text();
+        extractedQuestions = parseQuestionsFromPlainText(content);
       }
 
       if (extractedQuestions.length === 0) {
-        throw new Error('لم يتم العثور على أسئلة بتنسيق صالح داخل الملف');
+        throw new Error('لم يتم العثور على أسئلة بتنسيق صالح داخل الملف. تأكد من احتواء الملف على نصوص الأسئلة والخيارات.');
       }
 
-      // Send batch to server
-      const res = await importQuestionsBatch({
-        questions: extractedQuestions,
-        defaultBranch: 'علمي علوم'
-      });
+      // Send batch to server in chunks of 1000 to prevent payload timeout or network memory limits
+      const CHUNK_SIZE = 1000;
+      let totalAdded = 0;
+      let totalSkipped = 0;
+      const totalCount = extractedQuestions.length;
+      const totalChunks = Math.ceil(totalCount / CHUNK_SIZE);
 
-      setImportStatus(`✅ تم استيراد وفهرسة ${res.added} سؤال بنجاح!${manifestInfo} (تم تجاهل ${res.skipped} مكرر). المستغرق: ${res.timeMs}ms.`);
+      for (let i = 0; i < totalCount; i += CHUNK_SIZE) {
+        const chunk = extractedQuestions.slice(i, i + CHUNK_SIZE);
+        const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
+        setImportStatus(`جاري الفهرسة والتخزين: الدفعة ${chunkNum} من ${totalChunks} (${i.toLocaleString('ar-EG')} / ${totalCount.toLocaleString('ar-EG')} سؤال - ${Math.round((i / totalCount) * 100)}%)...`);
+        const res = await importQuestionsBatch({
+          questions: chunk,
+          defaultBranch: 'علمي علوم'
+        });
+        totalAdded += res.added;
+        totalSkipped += res.skipped;
+      }
+
+      setImportStatus(`✅ تم استيراد وفهرسة ${totalAdded.toLocaleString('ar-EG')} سؤال بنجاح!${manifestInfo} (تم تجاهل ${totalSkipped} مكرر أو فارغ). البنك جاهز للاختبارات الفورية.`);
       loadQuestionsList();
       onSettingsUpdated();
     } catch (e: any) {
@@ -421,6 +443,125 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setImportLoading(false);
       e.target.value = '';
     }
+  };
+
+  // Plain text / CSV / TSV / JSON Q&A parser helper
+  const parseQuestionsFromPlainText = (
+    text: string,
+    defaultSub?: string,
+    defaultU?: string,
+    defaultL?: string
+  ): Partial<Question>[] => {
+    const list: Partial<Question>[] = [];
+    const cleanText = text.replace(/^\uFEFF/, '').trim();
+    if (!cleanText) return list;
+
+    // 1. First try parsing as JSON (in case text is JSON string)
+    if (cleanText.startsWith('[') || cleanText.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(cleanText);
+        return extractQuestionsFromObject(parsed, defaultSub, defaultU, defaultL);
+      } catch {
+        // Continue to CSV / block parsing
+      }
+    }
+
+    const lines = cleanText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+    // 2. Check if text is CSV or Pipe-delimited (| or , or \t)
+    const delimiter = lines[0].includes('|') ? '|' : (lines[0].includes('\t') ? '\t' : (lines[0].includes(',') ? ',' : null));
+    if (delimiter && lines.length >= 1) {
+      let startIndex = 0;
+      const firstParts = lines[0].split(delimiter).map(p => p.trim());
+      if (firstParts.some(p => p.includes('سؤال') || p.includes('question') || p.includes('السؤال'))) {
+        startIndex = 1;
+      }
+
+      for (let i = startIndex; i < lines.length; i++) {
+        const parts = lines[i].split(delimiter).map(p => p.trim().replace(/^["']|["']$/g, ''));
+        if (parts.length >= 2) {
+          const qText = parts[0];
+          if (!qText) continue;
+          
+          let opts: string[] = [];
+          let correct = 0;
+          let explanation = '';
+          let sub = defaultSub || 'عام';
+          let unit = defaultU || 'الوحدة الأولى';
+          let lesson = defaultL || '';
+
+          if (parts.length >= 5) {
+            opts = [parts[1], parts[2], parts[3], parts[4]].filter(Boolean);
+            if (parts[5] !== undefined) {
+              const ansRaw = parts[5].toLowerCase();
+              if (ansRaw.includes('أ') || ansRaw === '1' || ansRaw.includes('opt1')) correct = 0;
+              else if (ansRaw.includes('ب') || ansRaw === '2' || ansRaw.includes('opt2')) correct = 1;
+              else if (ansRaw.includes('ج') || ansRaw === '3' || ansRaw.includes('opt3')) correct = 2;
+              else if (ansRaw.includes('د') || ansRaw === '4' || ansRaw.includes('opt4')) correct = 3;
+              else {
+                const parsedNum = parseInt(ansRaw, 10);
+                if (!isNaN(parsedNum)) correct = parsedNum >= 1 && parsedNum <= 4 ? parsedNum - 1 : 0;
+              }
+            }
+            if (parts[6]) explanation = parts[6];
+            if (parts[7]) sub = parts[7];
+            if (parts[8]) unit = parts[8];
+            if (parts[9]) lesson = parts[9];
+          } else {
+            opts = parts.slice(1);
+          }
+
+          list.push({
+            question: qText,
+            options: opts.length >= 2 ? opts : ['أ', 'ب', 'ج', 'د'],
+            correctAnswer: Math.max(0, Math.min(Math.max(0, opts.length - 1), correct)),
+            explanation,
+            subject: sub,
+            unit,
+            lesson,
+            question_type: 'mcq'
+          });
+        }
+      }
+
+      if (list.length > 0) return list;
+    }
+
+    // 3. Fallback to standard block Q&A format (س: ... أ) ... ب) ... ج) ... د) ... الإجابة: ...)
+    let currentQ: Partial<Question> | null = null;
+
+    for (const line of lines) {
+      if (line.startsWith('س:') || line.startsWith('سؤال:') || /^\d+[\.\-\)]/.test(line)) {
+        if (currentQ && currentQ.question && (currentQ.options?.length || 0) >= 2) {
+          list.push(currentQ);
+        }
+        currentQ = {
+          subject: defaultSub || 'عام',
+          unit: defaultU || 'الوحدة الأولى',
+          lesson: defaultL || '',
+          question: line.replace(/^(س:|سؤال:|\d+[\.\-\)])\s*/, ''),
+          options: [],
+          correctAnswer: 0,
+          explanation: ''
+        };
+      } else if (currentQ && /^[أ-دA-D1-4][\.\-\)]/.test(line)) {
+        const optText = line.replace(/^[أ-دA-D1-4][\.\-\)]\s*/, '');
+        currentQ.options = currentQ.options || [];
+        currentQ.options.push(optText);
+      } else if (currentQ && (line.startsWith('إجابة:') || line.startsWith('الإجابة:') || line.startsWith('الحل:') || line.startsWith('الجواب:'))) {
+        const ansStr = line.replace(/^(إجابة:|الإجابة:|الحل:|الجواب:)\s*/, '').toLowerCase();
+        if (ansStr.includes('أ') || ansStr.includes('a') || ansStr.includes('1')) currentQ.correctAnswer = 0;
+        else if (ansStr.includes('ب') || ansStr.includes('b') || ansStr.includes('2')) currentQ.correctAnswer = 1;
+        else if (ansStr.includes('ج') || ansStr.includes('c') || ansStr.includes('3')) currentQ.correctAnswer = 2;
+        else if (ansStr.includes('د') || ansStr.includes('d') || ansStr.includes('4')) currentQ.correctAnswer = 3;
+      } else if (currentQ && (line.startsWith('شرح:') || line.startsWith('الشرح:') || line.startsWith('تفسير:'))) {
+        currentQ.explanation = line.replace(/^(شرح:|الشرح:|تفسير:)\s*/, '');
+      }
+    }
+    if (currentQ && currentQ.question && (currentQ.options?.length || 0) >= 2) {
+      list.push(currentQ);
+    }
+    return list;
   };
 
   const extractQuestionsFromObject = (
@@ -438,8 +579,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       defaultL = fallbackLesson,
       parentType?: string
     ) => {
-      const qText = q.q_text || q.question || q.text;
-      if (!qText) return;
+      if (!q || typeof q !== 'object') return;
+      const qText = q.q_text || q.question || q.text || q.title || q.prompt || q.body || q.q || '';
+      if (!qText || typeof qText !== 'string' || !qText.trim()) return;
 
       const qType = q.question_type || q.type || parentType || 'mcq';
       const isEssay = qType === 'essay';
@@ -449,23 +591,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (!isEssay) {
         if (Array.isArray(q.options) && q.options.length > 0) {
           opts = q.options.map(String);
+        } else if (Array.isArray(q.choices) && q.choices.length > 0) {
+          opts = q.choices.map((c: any) => typeof c === 'object' ? (c.text || c.label || String(c)) : String(c));
+        } else if (Array.isArray(q.answers) && q.answers.length > 0) {
+          opts = q.answers.map((a: any) => typeof a === 'object' ? (a.text || a.label || String(a)) : String(a));
         } else if (q.opt1 !== undefined || q.opt2 !== undefined) {
           opts = [q.opt1, q.opt2, q.opt3, q.opt4].filter((v) => v !== undefined && v !== null).map(String);
+        } else if (q.a !== undefined || q.b !== undefined) {
+          opts = [q.a, q.b, q.c, q.d].filter((v) => v !== undefined && v !== null).map(String);
         }
         if (opts.length < 2) {
           opts = ['أ', 'ب', 'ج', 'د'];
         }
       }
 
-      // Parse correct answer (handles 1-based correct_opt: 1->0, 2->1, 3->2, 4->3)
+      // Parse correct answer (handles numbers, 1-based, and letters)
       let correct = 0;
-      if (typeof q.correct_opt === 'number') {
-        correct = q.correct_opt >= 1 && q.correct_opt <= 4 ? q.correct_opt - 1 : q.correct_opt;
-      } else if (typeof q.correctAnswer === 'number') {
-        correct = q.correctAnswer;
-      } else if (typeof q.correct === 'number') {
-        correct = q.correct >= 1 && q.correct <= 4 ? q.correct - 1 : q.correct;
+      const rawAns = q.correctAnswer !== undefined 
+        ? q.correctAnswer 
+        : (q.correct_opt !== undefined ? q.correct_opt : (q.correct !== undefined ? q.correct : (q.answer !== undefined ? q.answer : q.ans)));
+      
+      if (typeof rawAns === 'number') {
+        correct = q.correct_opt !== undefined && rawAns >= 1 && rawAns <= 4 ? rawAns - 1 : rawAns;
+      } else if (typeof rawAns === 'string') {
+        const s = rawAns.trim().toLowerCase();
+        if (s === 'أ' || s === 'a' || s === '1') correct = 0;
+        else if (s === 'ب' || s === 'b' || s === '2') correct = 1;
+        else if (s === 'ج' || s === 'c' || s === '3') correct = 2;
+        else if (s === 'د' || s === 'd' || s === '4') correct = 3;
+        else {
+          const parsed = parseInt(s, 10);
+          if (!isNaN(parsed)) correct = parsed >= 1 && parsed <= 4 ? parsed - 1 : Math.max(0, parsed);
+        }
       }
+      correct = Math.max(0, Math.min(opts.length > 0 ? opts.length - 1 : 3, correct));
 
       // Parse path: ["الباب الأول", "الدرس الأول"]
       let unit = defaultU;
@@ -479,10 +638,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         subject: q.subject || defaultSub || 'عام',
         unit: q.unit || q.l1 || unit || 'الوحدة الأولى',
         lesson: q.lesson || q.l2 || lesson || '',
-        question: qText,
+        question: qText.trim(),
         options: opts,
         correctAnswer: correct,
-        explanation: q.explanation || '',
+        explanation: q.explanation || q.reason || q.comment || '',
         branch: q.branch || '',
         question_type: qType as any,
         model_answer: q.model_answer || '',
@@ -510,9 +669,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       if (Array.isArray(obj.questions)) obj.questions.forEach((i: any) => processItem(i, sub, u, l, pType));
       if (Array.isArray(obj.questions_v2)) obj.questions_v2.forEach((i: any) => processItem(i, sub, u, l, pType));
+      if (Array.isArray(obj.data)) obj.data.forEach((i: any) => processItem(i, sub, u, l, pType));
+      if (Array.isArray(obj.items)) obj.items.forEach((i: any) => processItem(i, sub, u, l, pType));
+      if (Array.isArray(obj.list)) obj.list.forEach((i: any) => processItem(i, sub, u, l, pType));
+      if (Array.isArray(obj.bank)) obj.bank.forEach((i: any) => processItem(i, sub, u, l, pType));
       if (Array.isArray(obj.challenge_questions)) obj.challenge_questions.forEach((i: any) => processItem(i, sub, u, l, 'challenge'));
       if (Array.isArray(obj.banks)) {
         obj.banks.forEach((b: any) => list.push(...extractQuestionsFromObject(b, sub, u, l)));
+      }
+
+      // If single question object
+      if (obj.q_text || obj.question || obj.text || obj.title || obj.prompt) {
+        processItem(obj, sub, u, l, pType);
+      }
+
+      // If keys are unit or lesson names, e.g. { "الباب الأول": [ ... ] }
+      for (const [key, val] of Object.entries(obj)) {
+        if (['questions', 'questions_v2', 'data', 'items', 'list', 'bank', 'banks', 'challenge_questions', 'manifest'].includes(key)) continue;
+        if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object') {
+          val.forEach((item: any) => processItem(item, sub, key, l, pType));
+        }
       }
     }
 

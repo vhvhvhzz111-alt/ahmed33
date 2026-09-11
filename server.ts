@@ -20,6 +20,7 @@ app.get('/api/stats', (req, res) => {
   const mem = process.memoryUsage();
   res.json({
     totalQuestions: db.getQuestionCount(),
+    questionsBySubject: db.getQuestionsCountBySubject(),
     totalCodes: db.codes.size,
     totalResults: db.results.length,
     activeSubscribers: Array.from(db.codes.values()).filter(c => !c.disabled && (!c.expiresAt || c.expiresAt > Date.now())).length,
@@ -36,12 +37,13 @@ app.get('/api/stats', (req, res) => {
 
 // 2. Auth & Code verification with Device Locking & Reset support
 app.post('/api/auth/verify-code', (req, res) => {
-  const { code, deviceId } = req.body;
+  const { code, deviceId, deviceType } = req.body;
   if (!code) {
     return res.status(400).json({ valid: false, message: 'الكود مطلوب' });
   }
 
-  const codeObj = db.getCode(String(code));
+  const cleanCode = String(code).trim();
+  const codeObj = db.getCode(cleanCode);
   if (!codeObj) {
     return res.status(404).json({ valid: false, message: 'الكود غير صحيح، تأكد من إدخاله بدقة.' });
   }
@@ -55,8 +57,67 @@ app.post('/api/auth/verify-code', (req, res) => {
     return res.status(403).json({ valid: false, message: 'انتهت مدة صلاحية هذا الكود. يمكنك طلب التجديد من الإدارة.' });
   }
 
-  // Special bypass for Admin Master Codes
-  if (codeObj.kind === 'admin' || codeObj.isAdmin || String(code).toUpperCase().startsWith('ADMIN-')) {
+  // Device detection: Mobile Phone vs. Computer/Windows PC
+  const ua = (req.headers['user-agent'] || '').toLowerCase();
+  const isMobileUa = /android|iphone|ipad|ipod|mobile|blackberry|iemobile|opera mini/i.test(ua);
+  const detectedType = (deviceType === 'mobile' || (!deviceType && isMobileUa)) ? 'mobile' : 'desktop';
+
+  // 1. Dual-Device Locking specifically for Master Admin (aljarh123**)
+  const isMasterAdmin = 
+    cleanCode.toLowerCase() === 'aljarh123**' || 
+    codeObj.code.toLowerCase() === 'aljarh123**' ||
+    (db.settings.masterAdminCode && cleanCode.toLowerCase() === db.settings.masterAdminCode.toLowerCase());
+
+  if (isMasterAdmin) {
+    if (detectedType === 'mobile') {
+      // 1 Phone Lock
+      if (codeObj.mobileDeviceId && deviceId && codeObj.mobileDeviceId !== deviceId) {
+        return res.status(403).json({
+          valid: false,
+          deviceLocked: true,
+          message: '❌ تم تسجيل كود الإدارة (aljarh123**) مسبقاً على هاتف محمول آخر!\nالقيد المعتمد: هاتف ذكي واحد (1 Phone) + لابتوب ويندوز واحد (1 Windows PC) فقط.\nيُرجى استخدام هاتفك المسجل أو طلب إعادة تعيين الأجهزة من لوحة الإدارة.'
+        });
+      }
+      if (deviceId) codeObj.mobileDeviceId = deviceId;
+    } else {
+      // 1 Windows / Laptop / Computer Lock
+      if (codeObj.desktopDeviceId && deviceId && codeObj.desktopDeviceId !== deviceId) {
+        return res.status(403).json({
+          valid: false,
+          deviceLocked: true,
+          message: '❌ تم تسجيل كود الإدارة (aljarh123**) مسبقاً على جهاز كمبيوتر/لابتوب آخر!\nالقيد المعتمد: لابتوب ويندوز واحد (1 Windows PC) + هاتف ذكي واحد (1 Phone) فقط.\nيُرجى استخدام اللابتوب المسجل أو طلب إعادة تعيين الأجهزة من لوحة الإدارة.'
+        });
+      }
+      if (deviceId) codeObj.desktopDeviceId = deviceId;
+    }
+
+    codeObj.deviceId = deviceId || codeObj.deviceId;
+    codeObj.isAdmin = true;
+    codeObj.kind = 'admin';
+    codeObj.points = 99999;
+    codeObj.credits = 99999;
+    codeObj.firstUsedAt = codeObj.firstUsedAt || now;
+    db.saveCode(codeObj);
+
+    return res.json({
+      valid: true,
+      code: 'aljarh123**',
+      branch: 'كل الشُعب',
+      kind: 'admin',
+      isAdmin: true,
+      expiresAt: null,
+      points: 99999,
+      credits: 99999,
+      deviceId: deviceId,
+      mobileDeviceId: codeObj.mobileDeviceId,
+      desktopDeviceId: codeObj.desktopDeviceId,
+      deviceType: detectedType,
+      message: 'مرحباً بك! تم تسجيل الدخول كمسؤول عام (Admin) للمنصة بنجاح.'
+    });
+  }
+
+  // Other admin master codes
+  if (codeObj.kind === 'admin' || codeObj.isAdmin || cleanCode.toUpperCase().startsWith('ADMIN-')) {
     return res.json({
       valid: true,
       code: codeObj.code,
@@ -70,7 +131,7 @@ app.post('/api/auth/verify-code', (req, res) => {
     });
   }
 
-  // Device locking validation
+  // Standard student device locking validation
   if (deviceId) {
     if (codeObj.deviceId && codeObj.deviceId !== deviceId) {
       return res.status(403).json({
@@ -114,8 +175,8 @@ app.post('/api/auth/admin-login', (req, res) => {
 
   // Check by master code
   if (code) {
-    const cleanCode = String(code).trim().toUpperCase();
-    if (cleanCode === 'ADMIN-2027' || cleanCode === 'ADMIN-ABAQERA-2027') {
+    const cleanCode = String(code).trim();
+    if (cleanCode.toLowerCase() === 'aljarh123**' || cleanCode.toUpperCase() === 'ADMIN-2027' || cleanCode.toUpperCase() === 'ADMIN-ABAQERA-2027') {
       return res.json({
         success: true,
         isAdmin: true,
@@ -126,15 +187,15 @@ app.post('/api/auth/admin-login', (req, res) => {
     }
   }
 
-  // Check by credentials
+  // Check by credentials or master code as password
   const u = String(username || '').trim().toLowerCase();
   const p = String(password || '').trim();
 
-  if ((u === 'admin' || u === 'المدير' || u === 'مشرف' || u === 'root') && (p === currentPin || p === '2027')) {
+  if (p === 'aljarh123**' || p.toLowerCase() === 'aljarh123**' || ((u === 'admin' || u === 'المدير' || u === 'مشرف' || u === 'root') && (p === currentPin || p === '2027'))) {
     return res.json({
       success: true,
       isAdmin: true,
-      code: 'ADMIN-MASTER',
+      code: 'aljarh123**',
       branch: 'كل الشُعب',
       role: 'admin'
     });
@@ -142,7 +203,7 @@ app.post('/api/auth/admin-login', (req, res) => {
 
   return res.status(401).json({
     success: false,
-    message: 'بيانات دخول الإدارة غير صحيحة. اسم المستخدم الافتراضي: admin وكلمة المرور PIN: 2027'
+    message: 'بيانات دخول الإدارة غير صحيحة. يمكنك استخدام الكود الإداري: aljarh123** أو كلمة المرور PIN: 2027'
   });
 });
 
@@ -173,30 +234,57 @@ app.post('/api/questions', (req, res) => {
 
 // High-speed bulk ingestion endpoint
 app.post('/api/questions/batch', (req, res) => {
-  const { questions, defaultBranch, defaultSubject, defaultUnit } = req.body;
-  if (!Array.isArray(questions)) {
-    return res.status(400).json({ error: 'قائمة الأسئلة يجب أن تكون مصفوفة' });
+  try {
+    let questionsList: any[] = [];
+    let defaultBranch = 'علمي علوم';
+    let defaultSubject = 'عام';
+    let defaultUnit = 'عام';
+
+    if (Array.isArray(req.body)) {
+      questionsList = req.body;
+    } else if (req.body && typeof req.body === 'object') {
+      defaultBranch = req.body.defaultBranch || defaultBranch;
+      defaultSubject = req.body.defaultSubject || defaultSubject;
+      defaultUnit = req.body.defaultUnit || defaultUnit;
+      questionsList = Array.isArray(req.body.questions) 
+        ? req.body.questions 
+        : (Array.isArray(req.body.items) 
+          ? req.body.items 
+          : (Array.isArray(req.body.data) 
+            ? req.body.data 
+            : []));
+    }
+
+    if (!Array.isArray(questionsList) || questionsList.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'قائمة الأسئلة يجب أن تكون مصفوفة غير فارغة أو تحتوي على questions: []' 
+      });
+    }
+
+    const prepared = questionsList.map(q => ({
+      ...q,
+      branch: q.branch || q['الشعبة'] || defaultBranch,
+      subject: q.subject || q['المادة'] || defaultSubject,
+      unit: q.unit || q.l1 || q['الوحدة'] || q['الباب'] || defaultUnit,
+      lesson: q.lesson || q.l2 || q['الدرس'] || ''
+    }));
+
+    const start = Date.now();
+    const result = db.addQuestionsBatch(prepared);
+    const timeMs = Date.now() - start;
+
+    res.json({
+      success: true,
+      added: result.added,
+      skipped: result.skipped,
+      totalInDb: db.getQuestionCount(),
+      timeMs
+    });
+  } catch (err: any) {
+    console.error('Error in /api/questions/batch:', err);
+    res.status(500).json({ success: false, error: err.message || 'حدث خطأ أثناء حفظ الأسئلة' });
   }
-
-  const prepared = questions.map(q => ({
-    ...q,
-    branch: q.branch || defaultBranch,
-    subject: q.subject || defaultSubject,
-    unit: q.unit || q.l1 || defaultUnit,
-    lesson: q.lesson || q.l2 || ''
-  }));
-
-  const start = Date.now();
-  const result = db.addQuestionsBatch(prepared);
-  const timeMs = Date.now() - start;
-
-  res.json({
-    success: true,
-    added: result.added,
-    skipped: result.skipped,
-    totalInDb: db.getQuestionCount(),
-    timeMs
-  });
 });
 
 app.delete('/api/questions/:id', (req, res) => {
@@ -298,6 +386,8 @@ app.post('/api/codes/reset-device', (req, res) => {
   if (!codeObj) return res.status(404).json({ error: 'الكود غير موجود' });
 
   codeObj.deviceId = '';
+  codeObj.mobileDeviceId = '';
+  codeObj.desktopDeviceId = '';
   codeObj.deviceResetAt = Date.now();
   db.saveCode(codeObj);
 

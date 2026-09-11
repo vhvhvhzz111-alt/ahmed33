@@ -8,6 +8,7 @@ import { QuizEngine } from './components/QuizEngine.tsx';
 import { ExportModal } from './components/ExportModal.tsx';
 import { ProfileModal } from './components/ProfileModal.tsx';
 import { AdminDashboard } from './components/AdminDashboard.tsx';
+import { CountdownBanner } from './components/CountdownBanner.tsx';
 import { 
   verifyAccessCode, 
   getSavedSession, 
@@ -61,15 +62,9 @@ export default function App() {
       const stats = await fetchPlatformStats();
       if (stats) {
         setTotalQuestions(stats.totalQuestions || 0);
-      }
-      // fetch sample questions to count by subject
-      const allQ = await fetchQuestions({ limit: 1000 });
-      if (allQ && allQ.questions) {
-        const counts: Record<string, number> = {};
-        allQ.questions.forEach((q) => {
-          counts[q.subject] = (counts[q.subject] || 0) + 1;
-        });
-        setQuestionCountsBySubject(counts);
+        if (stats.questionsBySubject && Object.keys(stats.questionsBySubject).length > 0) {
+          setQuestionCountsBySubject(stats.questionsBySubject);
+        }
       }
     } catch (e) {
       console.error('Failed to fetch platform stats:', e);
@@ -208,6 +203,12 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#07111f] text-[#f5f8ff] flex flex-col selection:bg-[#43e6a8] selection:text-[#04121a]">
+      {/* Top Prominent Countdown Timer Banner */}
+      <CountdownBanner
+        userCode={userCode}
+        onOpenAdmin={() => setAdminOpen(true)}
+      />
+
       {/* Navbar */}
       <Navbar
         userCode={userCode}
@@ -249,6 +250,7 @@ export default function App() {
             userCode={userCode}
             onSelectSubject={(sub) => setSelectedSubject(sub)}
             questionCounts={questionCountsBySubject}
+            totalQuestionsCount={totalQuestions}
           />
         )}
       </main>

@@ -12,13 +12,26 @@ export function getDeviceId(): string {
   return dev;
 }
 
+export function getDeviceInfo(): { deviceId: string; deviceType: 'mobile' | 'desktop'; os: string } {
+  const deviceId = getDeviceId();
+  const ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '') || '';
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+  const isWindows = /Windows/i.test(ua);
+  const os = isWindows ? 'Windows PC' : isMobile ? 'Mobile Phone' : 'Computer/Laptop';
+  return {
+    deviceId,
+    deviceType: isMobile ? 'mobile' : 'desktop',
+    os
+  };
+}
+
 export function getSavedSession(): string {
   return localStorage.getItem(SESSION_KEY) || '';
 }
 
 export function setSavedSession(code: string | null) {
   if (code) {
-    localStorage.setItem(SESSION_KEY, code.toUpperCase().trim());
+    localStorage.setItem(SESSION_KEY, code.trim());
   } else {
     localStorage.removeItem(SESSION_KEY);
   }
@@ -36,18 +49,27 @@ export async function verifyAccessCode(code: string): Promise<{
   points?: number;
   credits?: number;
   deviceId?: string;
+  mobileDeviceId?: string;
+  desktopDeviceId?: string;
+  deviceType?: 'mobile' | 'desktop';
 }> {
-  const deviceId = getDeviceId();
+  const info = getDeviceInfo();
   const res = await fetch('/api/auth/verify-code', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code: code.toUpperCase().trim(), deviceId })
+    body: JSON.stringify({
+      code: code.trim(),
+      deviceId: info.deviceId,
+      deviceType: info.deviceType,
+      os: info.os
+    })
   });
   return res.json();
 }
 
 export async function fetchPlatformStats(): Promise<{
   totalQuestions: number;
+  questionsBySubject?: Record<string, number>;
   totalCodes: number;
   totalResults: number;
   activeSubscribers: number;

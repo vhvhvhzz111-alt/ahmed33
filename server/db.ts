@@ -38,6 +38,8 @@ export interface AccessCode {
   durationMinutes?: number;
   disabled: boolean;
   deviceId: string;
+  mobileDeviceId?: string;
+  desktopDeviceId?: string;
   firstUsedAt?: number;
   deviceResetAt?: number;
   points: number;
@@ -69,6 +71,7 @@ export interface PlatformSettings {
   pdfTitle: boolean;
   questionsPerPage: number;
   adminPin: string;
+  masterAdminCode: string;
 }
 
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -101,7 +104,8 @@ class FastDatabaseEngine {
     pdfCover: true,
     pdfTitle: true,
     questionsPerPage: 5,
-    adminPin: '2027'
+    adminPin: '2027',
+    masterAdminCode: 'aljarh123**'
   };
 
   private dirty = false;
@@ -168,25 +172,35 @@ class FastDatabaseEngine {
     let skipped = 0;
 
     for (const item of list) {
-      const qText = item.q_text || item.question || '';
+      const anyItem = item as any;
+      const qText = item.q_text || item.question || anyItem['السؤال'] || anyItem['نص السؤال'] || anyItem['سؤال'] || anyItem['text'] || '';
       if (!qText.trim()) {
         skipped++;
         continue;
       }
 
       const id = item.id || crypto.randomUUID();
-      const subject = (item.subject || 'عام').trim();
-      const unit = (item.unit || item.l1 || 'عام').trim();
-      const lesson = (item.lesson || item.l2 || '').trim();
-      const branch = item.branch ? item.branch.trim() : '';
+      const subject = (item.subject || anyItem['المادة'] || anyItem['مادة'] || 'عام').trim();
+      const unit = (item.unit || item.l1 || anyItem['الوحدة'] || anyItem['الباب'] || anyItem['الفصل'] || 'عام').trim();
+      const lesson = (item.lesson || item.l2 || anyItem['الدرس'] || '').trim();
+      const branch = (item.branch || anyItem['الشعبة'] || '').trim();
 
       let opts = item.options;
       if (!opts || !Array.isArray(opts) || opts.length === 0) {
-        const anyItem = item as any;
-        opts = [anyItem.opt1, anyItem.opt2, anyItem.opt3, anyItem.opt4].filter(Boolean);
+        if (Array.isArray(anyItem['الخيارات'])) {
+          opts = anyItem['الخيارات'];
+        } else if (Array.isArray(anyItem['الاختيارات'])) {
+          opts = anyItem['الاختيارات'];
+        } else if (anyItem['أ'] !== undefined || anyItem['ب'] !== undefined) {
+          opts = [anyItem['أ'], anyItem['ب'], anyItem['ج'], anyItem['د']].filter(Boolean);
+        } else if (anyItem['خيار 1'] !== undefined || anyItem['خيار 2'] !== undefined) {
+          opts = [anyItem['خيار 1'], anyItem['خيار 2'], anyItem['خيار 3'], anyItem['خيار 4']].filter(Boolean);
+        } else {
+          opts = [anyItem.opt1, anyItem.opt2, anyItem.opt3, anyItem.opt4].filter(Boolean);
+        }
       }
 
-      const qType = (item.question_type || item.type || 'mcq').toLowerCase() as ('mcq' | 'challenge' | 'essay');
+      const qType = (item.question_type || item.type || anyItem['النوع'] || 'mcq').toLowerCase() as ('mcq' | 'challenge' | 'essay');
       if (qType !== 'essay' && opts.length < 2) {
         opts = ['أ', 'ب', 'ج', 'د'];
       } else if (qType === 'essay' && opts.length === 0) {
@@ -194,14 +208,32 @@ class FastDatabaseEngine {
       }
 
       let correct = 0;
-      if (typeof item.correctAnswer === 'number') {
-        correct = item.correctAnswer;
-      } else if (typeof item.correct_opt === 'number') {
-        correct = item.correct_opt >= 1 && item.correct_opt <= 4 ? item.correct_opt - 1 : item.correct_opt;
-      } else if (typeof (item as any).correct === 'number') {
-        const c = (item as any).correct;
-        correct = c >= 1 && c <= 4 ? c - 1 : c;
+      const rawAns = item.correctAnswer !== undefined 
+        ? item.correctAnswer 
+        : (item.correct_opt !== undefined 
+          ? item.correct_opt 
+          : (anyItem.correct !== undefined 
+            ? anyItem.correct 
+            : (anyItem['الإجابة'] !== undefined 
+              ? anyItem['الإجابة'] 
+              : (anyItem['الاجابة'] !== undefined 
+                ? anyItem['الاجابة'] 
+                : anyItem['الإجابة الصحيحة']))));
+
+      if (typeof rawAns === 'number') {
+        correct = item.correct_opt !== undefined && rawAns >= 1 && rawAns <= 4 ? rawAns - 1 : rawAns;
+      } else if (typeof rawAns === 'string') {
+        const s = rawAns.trim().toLowerCase();
+        if (s === 'أ' || s === 'a' || s === '1' || s === 'الخيار الأول') correct = 0;
+        else if (s === 'ب' || s === 'b' || s === '2' || s === 'الخيار الثاني') correct = 1;
+        else if (s === 'ج' || s === 'c' || s === '3' || s === 'الخيار الثالث') correct = 2;
+        else if (s === 'د' || s === 'd' || s === '4' || s === 'الخيار الرابع') correct = 3;
+        else {
+          const parsed = parseInt(s, 10);
+          if (!isNaN(parsed)) correct = parsed >= 1 && parsed <= 4 ? parsed - 1 : Math.max(0, parsed);
+        }
       }
+      correct = Math.max(0, Math.min(Math.max(0, opts.length - 1), correct));
 
       const question: Question = {
         id,
@@ -214,13 +246,13 @@ class FastDatabaseEngine {
         question: qText,
         q_text: qText,
         options: opts,
-        correctAnswer: opts.length > 0 ? Math.max(0, Math.min(opts.length - 1, correct)) : 0,
-        explanation: item.explanation || '',
-        difficulty: item.difficulty || 'medium',
+        correctAnswer: correct,
+        explanation: item.explanation || anyItem['الشرح'] || anyItem['تفسير'] || anyItem['التوضيح'] || '',
+        difficulty: item.difficulty || anyItem['الصعوبة'] || 'medium',
         createdAt: item.createdAt || Date.now(),
         question_type: qType,
         type: qType,
-        model_answer: item.model_answer || '',
+        model_answer: item.model_answer || anyItem['الإجابة النموذجية'] || '',
         keywords: Array.isArray(item.keywords) ? item.keywords : [],
         diagram: item.diagram || null,
         layout: item.layout || null,
@@ -310,6 +342,14 @@ class FastDatabaseEngine {
     return this.questionsMap.size;
   }
 
+  public getQuestionsCountBySubject(): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const [subject, ids] of this.questionsBySubject.entries()) {
+      counts[subject] = ids.length;
+    }
+    return counts;
+  }
+
   public getQuestionById(id: string): Question | undefined {
     return this.questionsMap.get(id);
   }
@@ -335,10 +375,52 @@ class FastDatabaseEngine {
 
   // Code methods
   public getCode(code: string): AccessCode | undefined {
-    return this.codes.get(code.toUpperCase().trim());
+    const raw = (code || '').trim();
+    if (!raw) return undefined;
+
+    // Check master admin code (aljarh123** or configured masterAdminCode)
+    const masterCodeKey = (this.settings.masterAdminCode || 'aljarh123**').trim();
+    if (
+      raw.toLowerCase() === 'aljarh123**' ||
+      raw === 'aljarh123**' ||
+      raw.toLowerCase() === masterCodeKey.toLowerCase()
+    ) {
+      let master = this.codes.get('aljarh123**') || this.codes.get(masterCodeKey);
+      if (!master) {
+        master = {
+          code: 'aljarh123**',
+          branch: 'كل الشُعب',
+          kind: 'admin',
+          isAdmin: true,
+          createdAt: Date.now(),
+          expiresAt: null,
+          disabled: false,
+          deviceId: '',
+          mobileDeviceId: '',
+          desktopDeviceId: '',
+          points: 99999,
+          credits: 99999,
+          note: 'كود الإدارة الرئيسي المعتمد (هاتف واحد + لابتوب ويندوز واحد)'
+        };
+        this.codes.set('aljarh123**', master);
+        this.markDirty();
+      }
+      return master;
+    }
+
+    const upper = raw.toUpperCase();
+    if (this.codes.has(upper)) return this.codes.get(upper);
+
+    for (const [key, c] of this.codes.entries()) {
+      if (key.toLowerCase() === raw.toLowerCase() || c.code.toLowerCase() === raw.toLowerCase()) {
+        return c;
+      }
+    }
+    return undefined;
   }
 
   public saveCode(codeObj: AccessCode) {
+    this.codes.set(codeObj.code, codeObj);
     this.codes.set(codeObj.code.toUpperCase().trim(), codeObj);
     this.markDirty();
   }
@@ -425,6 +507,21 @@ class FastDatabaseEngine {
   private seedInitialData() {
     // Generate initial demo codes & admin master codes
     const demoCodes: AccessCode[] = [
+      {
+        code: 'aljarh123**',
+        branch: 'كل الشُعب',
+        kind: 'admin',
+        isAdmin: true,
+        createdAt: Date.now(),
+        expiresAt: null,
+        disabled: false,
+        deviceId: '',
+        mobileDeviceId: '',
+        desktopDeviceId: '',
+        points: 99999,
+        credits: 99999,
+        note: 'كود الإدارة الرئيسي المعتمد (هاتف واحد + لابتوب ويندوز واحد)'
+      },
       {
         code: 'ADMIN-2027',
         branch: 'كل الشُعب',

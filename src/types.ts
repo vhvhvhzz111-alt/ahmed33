@@ -48,6 +48,8 @@ export interface AccessCode {
   durationMinutes?: number;
   disabled: boolean;
   deviceId: string;
+  mobileDeviceId?: string;
+  desktopDeviceId?: string;
   firstUsedAt?: number;
   deviceResetAt?: number;
   points: number;
