@@ -1,0 +1,203 @@
+{
+  "settings": {
+    "siteName": "منصة العباقرة 2027",
+    "allowTrial": true,
+    "trialMinutes": 60,
+    "allowPdf": true,
+    "allowImages": true,
+    "pdfCover": true,
+    "pdfTitle": true,
+    "questionsPerPage": 5,
+    "adminPin": "2027"
+  },
+  "codes": [
+    {
+      "code": "ABQ-2027-SUPER",
+      "branch": "علمي علوم",
+      "kind": "sub",
+      "createdAt": 1789127064356,
+      "expiresAt": 1820663064356,
+      "disabled": false,
+      "deviceId": "DEV-cc688365-dc4c-40a0-8a55-03ae3d7cc5e4",
+      "points": 150,
+      "credits": 50,
+      "note": "كود تجريبي مفتوح - علمي علوم",
+      "firstUsedAt": 1789127385809,
+      "deviceResetAt": 1789127097648
+    },
+    {
+      "code": "ABQ-MATH-2027",
+      "branch": "علمي رياضة",
+      "kind": "sub",
+      "createdAt": 1789127064356,
+      "expiresAt": 1820663064356,
+      "disabled": false,
+      "deviceId": "",
+      "points": 90,
+      "credits": 50,
+      "note": "كود تجريبي مفتوح - علمي رياضة"
+    },
+    {
+      "code": "ABQ-ADAB-2027",
+      "branch": "أدبي",
+      "kind": "sub",
+      "createdAt": 1789127064356,
+      "expiresAt": 1820663064356,
+      "disabled": false,
+      "deviceId": "",
+      "points": 80,
+      "credits": 50,
+      "note": "كود تجريبي مفتوح - أدبي"
+    },
+    {
+      "code": "TRY-FREE-HOUR",
+      "branch": "علمي علوم",
+      "kind": "trial",
+      "createdAt": 1789127064356,
+      "expiresAt": null,
+      "durationMinutes": 60,
+      "disabled": false,
+      "deviceId": "",
+      "points": 0,
+      "credits": 5,
+      "note": "كود تجربة مجانية ساعة واحدة"
+    }
+  ],
+  "results": [
+    {
+      "id": "57545c96-da3f-4513-a904-dcbd390e0650",
+      "code": "ABQ-2027-SUPER",
+      "branch": "علمي علوم",
+      "subject": "اللغة العربية",
+      "unit": "النحو",
+      "lesson": "همزة الوصل وهمزة القطع: مواضعهما وأحكامهما",
+      "score": 0,
+      "total": 20,
+      "durationSeconds": 19,
+      "createdAt": 1789127421126,
+      "answersSummary": [
+        {
+          "qid": "3b6738f3-31d2-4ab6-a778-01bc8b4d9e7e",
+          "ok": false,
+          "selected": 2,
+          "correct": 0
+        },
+        {
+          "qid": "5259566c-2b56-4fa5-bda9-2443954ea578",
+          "ok": false,
+          "selected": 1,
+          "correct": 0
+        },
+        {
+          "qid": "6ef8c145-42e7-45f8-90f7-21940b6a2c68",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        },
+        {
+          "qid": "8ca57584-edac-490d-b3ef-4f44aa36e4c3",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        },
+        {
+          "qid": "08a244d4-53b7-40a5-9f06-9f59a2dced06",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        },
+        {
+          "qid": "693577ed-d3da-463c-8148-e0255f37adab",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        },
+        {
+          "qid": "eb64a750-5ed2-49dc-88fa-da409d41db1e",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        },
+        {
+          "qid": "4efab955-8026-480f-aed8-07387ad00333",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        },
+        {
+          "qid": "efd3a8ec-eb80-4858-9f58-84e303e21015",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        },
+        {
+          "qid": "eb614aa6-f486-4e0d-a4f5-19baee3518cc",
+          "ok": false,
+          "selected": 1,
+          "correct": 0
+        },
+        {
+          "qid": "809950e3-5a6d-4231-9f25-37578d8a784b",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        },
+        {
+          "qid": "f4d477c6-4d2e-4194-9197-57a3b1c3ef6c",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        },
+        {
+          "qid": "ff1c0945-84ea-4dbc-81ed-d70c5a6af5c9",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        },
+        {
+          "qid": "b55cd06a-b2e3-4dd2-8d60-29b04e3d6456",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        },
+        {
+          "qid": "2e6f3b18-5c63-4102-8d18-f95f16ab5731",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        },
+        {
+          "qid": "3d2768a1-a581-4500-9b76-a1a6247f96e9",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        },
+        {
+          "qid": "d8b5f96c-5779-4835-a0a7-60b90cdc55bf",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        },
+        {
+          "qid": "f6f96df5-a59f-4bd7-9996-cd98f9ec8763",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        },
+        {
+          "qid": "ef33ecd4-e84e-417a-abce-1b108ed335a4",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        },
+        {
+          "qid": "ffa4d06a-8350-49da-b410-cea9a7a1b8a1",
+          "ok": false,
+          "selected": -1,
+          "correct": 0
+        }
+      ]
+    }
+  ],
+  "questions": []
+}

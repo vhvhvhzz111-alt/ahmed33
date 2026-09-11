@@ -1,0 +1,6 @@
+{
+  "name": "منصة العباقرة 2027",
+  "description": "منصة تعليمية متكاملة للثانوية العامة والأزهرية مع بنك أسئلة ضخم، اختبارات بمؤقت، تصدير PDF وصور، وتوليد أسئلة بالذكاء الاصطناعي.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
